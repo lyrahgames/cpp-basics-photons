@@ -1,0 +1,7 @@
+project = photons
+
+using version
+using config
+using test
+using install
+using dist
