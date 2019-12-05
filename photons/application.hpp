@@ -19,7 +19,7 @@ class application {
   sf::RenderWindow window;
   sf::View view;
 
-  float fov = 4;
+  float fov = 100;
 
   system sys;
   std::mt19937 rng{std::random_device{}()};

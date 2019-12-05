@@ -5,7 +5,7 @@ using namespace std;
 
 namespace photons {
 
-application::application() : window{{500, 500}, "Photons"}, sys{1000} {
+application::application() : window{{500, 500}, "Photons"}, sys{10000} {
   view.setCenter(0, 0);
 
   photons::generate_random(sys, rng);
@@ -32,6 +32,7 @@ void application::render() {
 
 void application::execute() {
   bool update = false;
+  bool pause = false;
   sf::Vector2i old_mouse{};
 
   while (window.isOpen()) {
@@ -59,6 +60,14 @@ void application::execute() {
             case sf::Keyboard::Escape:
               window.close();
               break;
+
+            case sf::Keyboard::Space:
+              pause = !pause;
+              break;
+
+            case sf::Keyboard::R:
+              photons::generate_random(sys, rng);
+              break;
           }
           break;
       }
@@ -76,7 +85,7 @@ void application::execute() {
       update = false;
     }
 
-    photons::experimental::advance(sys, rng);
+    if (!pause) photons::optics::advance(sys, rng);
 
     window.clear();
     render();
