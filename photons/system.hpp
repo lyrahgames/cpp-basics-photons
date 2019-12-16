@@ -1,5 +1,8 @@
 #pragma once
+#include <immintrin.h>
+
 #include <cmath>
+#include <pxart/pxart.hpp>
 #include <random>
 #include <vector>
 
@@ -153,27 +156,26 @@ inline void advance(system& sys, RNG& rng) noexcept {
   constexpr auto square = [](auto x) { return x * x; };
   std::uniform_real_distribution<system::real_type> dist{0, 1};
 
+  const float absorption = 0.1;
+  const auto time = 1e-1f;
+  const float g = 0.8f;
+
   for (int i = 0; i < sys.size(); ++i) {
-    const auto time = 1e-3f;
-    // const float g = std::clamp(sys.pos_y[i], -1.0f, 1.0f);
-    const float g = 0.5f;
-    // const float g =
-    //     (square(sys.pos_x[i]) + square(sys.pos_y[i]) < 1) ? (-0.8) : (1);
     sys.pos_x[i] += time * sys.v_x[i];
     sys.pos_y[i] += time * sys.v_y[i];
 
-    const float absorption = 0.5;
-    const float scattering = 0.95;
-    if (dist(rng) < std::exp(-absorption * time)) continue;
-    if (dist(rng) > scattering) {
-      sys.weights[i] = 0;
-      continue;
-    }
+    // const float scattering = 1.0;
+    if (pxart::uniform<float>(rng) < std::exp(-absorption * time)) continue;
+    // if (pxart::uniform<float>(rng) > scattering) {
+    //   sys.weights[i] = 0;
+    //   continue;
+    // }
     const auto cos_angle =
-        (1 + square(g) - square((1 - g * g) / (1 - g + 2 * g * dist(rng)))) /
+        (1 + square(g) -
+         square((1 - g * g) / (1 - g + 2 * g * pxart::uniform<float>(rng)))) /
         (2 * g);
-    const auto sin_angle =
-        ((dist(rng) > 0.5) ? 1 : -1) * std::sqrt(1 - square(cos_angle));
+    const auto sin_angle = ((pxart::uniform<float>(rng) > 0.5) ? 1 : -1) *
+                           std::sqrt(1 - square(cos_angle));
     const auto new_x = cos_angle * sys.v_x[i] - sin_angle * sys.v_y[i];
     const auto new_y = sin_angle * sys.v_x[i] + cos_angle * sys.v_y[i];
     sys.v_x[i] = new_x;
@@ -182,6 +184,126 @@ inline void advance(system& sys, RNG& rng) noexcept {
 }
 
 }  // namespace phase_function
+
+namespace phase_function_avx {
+template <typename RNG>
+inline void advance(system& sys, RNG& rng) noexcept {
+  constexpr float two_pi = 6.283185307;
+  constexpr auto square = [](auto x) { return x * x; };
+  std::uniform_real_distribution<system::real_type> dist{0, 1};
+
+  const auto time = 1e-1f;
+  const float g = -0.8f;
+  const float absorption = 0.1;
+  const auto free_time = std::exp(-absorption * time);
+
+  const auto v_time = _mm256_set1_ps(time);
+  const auto v_free_time = _mm256_set1_ps(free_time);
+
+  for (int i = 0; i < sys.size(); i += 8) {
+    const auto pos_x = _mm256_loadu_ps(&sys.pos_x[i]);
+    const auto pos_y = _mm256_loadu_ps(&sys.pos_y[i]);
+    const auto v_x = _mm256_loadu_ps(&sys.v_x[i]);
+    const auto v_y = _mm256_loadu_ps(&sys.v_y[i]);
+    const auto new_pos_x = _mm256_add_ps(pos_x, _mm256_mul_ps(v_time, v_x));
+    const auto new_pos_y = _mm256_add_ps(pos_y, _mm256_mul_ps(v_time, v_y));
+    _mm256_storeu_ps(&sys.pos_x[i], new_pos_x);
+    _mm256_storeu_ps(&sys.pos_y[i], new_pos_y);
+
+    const auto rnd = _mm256_set_ps(dist(rng), dist(rng), dist(rng), dist(rng),
+                                   dist(rng), dist(rng), dist(rng), dist(rng));
+    const auto mask = _mm256_cmp_ps(rnd, v_free_time, _CMP_LT_OQ);
+
+    const auto v_g = _mm256_set1_ps(g);
+    const auto v_g2 = _mm256_mul_ps(v_g, v_g);
+    const auto one = _mm256_set1_ps(1);
+    const auto mone = _mm256_set1_ps(-1);
+    const auto two = _mm256_set1_ps(2);
+    const auto v_2g = _mm256_mul_ps(two, v_g);
+    auto denom = _mm256_sub_ps(one, v_g);
+    denom = _mm256_add_ps(denom, _mm256_mul_ps(v_2g, rnd));
+    const auto numer = _mm256_sub_ps(one, v_g2);
+    const auto frac = _mm256_div_ps(numer, denom);
+    auto brackets = _mm256_add_ps(one, v_g2);
+    brackets = _mm256_sub_ps(brackets, _mm256_mul_ps(frac, frac));
+    const auto cos_angle = _mm256_div_ps(brackets, v_2g);
+
+    const auto rnd2 = _mm256_set_ps(dist(rng), dist(rng), dist(rng), dist(rng),
+                                    dist(rng), dist(rng), dist(rng), dist(rng));
+
+    const auto abs_sin_angle =
+        _mm256_sqrt_ps(_mm256_sub_ps(one, _mm256_mul_ps(cos_angle, cos_angle)));
+    const auto lr_mask = _mm256_cmp_ps(rnd2, _mm256_set1_ps(0.5), _CMP_LT_OQ);
+    const auto sin_angle = _mm256_blendv_ps(
+        abs_sin_angle, _mm256_mul_ps(mone, abs_sin_angle), lr_mask);
+
+    const auto new_x = _mm256_sub_ps(_mm256_mul_ps(cos_angle, v_x),
+                                     _mm256_mul_ps(sin_angle, v_y));
+    const auto new_y = _mm256_add_ps(_mm256_mul_ps(sin_angle, v_x),
+                                     _mm256_mul_ps(cos_angle, v_y));
+    _mm256_storeu_ps(&sys.v_x[i], _mm256_blendv_ps(new_x, v_x, mask));
+    _mm256_storeu_ps(&sys.v_y[i], _mm256_blendv_ps(new_y, v_y, mask));
+  }
+}
+}  // namespace phase_function_avx
+
+namespace phase_function_avx_prng {
+template <typename RNG>
+inline void advance(system& sys, RNG& rng) noexcept {
+  const auto time = 1e-1f;
+  const float g = -0.8f;
+  const float absorption = 0.1;
+  const auto free_time = std::exp(-absorption * time);
+
+  const auto v_time = _mm256_set1_ps(time);
+  const auto v_free_time = _mm256_set1_ps(free_time);
+
+  for (int i = 0; i < sys.size(); i += 8) {
+    const auto pos_x = _mm256_loadu_ps(&sys.pos_x[i]);
+    const auto pos_y = _mm256_loadu_ps(&sys.pos_y[i]);
+    const auto v_x = _mm256_loadu_ps(&sys.v_x[i]);
+    const auto v_y = _mm256_loadu_ps(&sys.v_y[i]);
+    const auto new_pos_x = _mm256_add_ps(pos_x, _mm256_mul_ps(v_time, v_x));
+    const auto new_pos_y = _mm256_add_ps(pos_y, _mm256_mul_ps(v_time, v_y));
+    // const auto new_pos_x = _mm256_fmadd_ps(v_time, v_x, pos_x);
+    // const auto new_pos_y = _mm256_fmadd_ps(v_time, v_y, pos_y);
+    _mm256_storeu_ps(&sys.pos_x[i], new_pos_x);
+    _mm256_storeu_ps(&sys.pos_y[i], new_pos_y);
+
+    const auto rnd = pxart::simd256::uniform<float>(rng);
+    const auto mask = _mm256_cmp_ps(rnd, v_free_time, _CMP_LT_OQ);
+
+    const auto v_g = _mm256_set1_ps(g);
+    const auto v_g2 = _mm256_mul_ps(v_g, v_g);
+    const auto one = _mm256_set1_ps(1);
+    const auto mone = _mm256_set1_ps(-1);
+    const auto two = _mm256_set1_ps(2);
+    const auto v_2g = _mm256_mul_ps(two, v_g);
+    auto denom = _mm256_sub_ps(one, v_g);
+    denom = _mm256_add_ps(denom, _mm256_mul_ps(v_2g, rnd));
+    const auto numer = _mm256_sub_ps(one, v_g2);
+    const auto frac = _mm256_div_ps(numer, denom);
+    auto brackets = _mm256_add_ps(one, v_g2);
+    brackets = _mm256_sub_ps(brackets, _mm256_mul_ps(frac, frac));
+    const auto cos_angle = _mm256_div_ps(brackets, v_2g);
+
+    const auto rnd2 = pxart::simd256::uniform<float>(rng);
+
+    const auto abs_sin_angle =
+        _mm256_sqrt_ps(_mm256_sub_ps(one, _mm256_mul_ps(cos_angle, cos_angle)));
+    const auto lr_mask = _mm256_cmp_ps(rnd2, _mm256_set1_ps(0.5), _CMP_LT_OQ);
+    const auto sin_angle = _mm256_blendv_ps(
+        abs_sin_angle, _mm256_mul_ps(mone, abs_sin_angle), lr_mask);
+
+    const auto new_x = _mm256_sub_ps(_mm256_mul_ps(cos_angle, v_x),
+                                     _mm256_mul_ps(sin_angle, v_y));
+    const auto new_y = _mm256_add_ps(_mm256_mul_ps(sin_angle, v_x),
+                                     _mm256_mul_ps(cos_angle, v_y));
+    _mm256_storeu_ps(&sys.v_x[i], _mm256_blendv_ps(new_x, v_x, mask));
+    _mm256_storeu_ps(&sys.v_y[i], _mm256_blendv_ps(new_y, v_y, mask));
+  }
+}
+}  // namespace phase_function_avx_prng
 
 namespace optics {
 

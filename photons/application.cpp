@@ -1,4 +1,6 @@
 #include <cmath>
+#include <future>
+#include <iostream>
 #include <photons/application.hpp>
 
 using namespace std;
@@ -33,7 +35,12 @@ void application::render() {
 void application::execute() {
   bool update = false;
   bool pause = false;
+  bool draw = true;
   sf::Vector2i old_mouse{};
+
+  constexpr float fps_bound = 1.0;
+  auto old_time = std::chrono::high_resolution_clock::now();
+  auto frames = 0;
 
   while (window.isOpen()) {
     const auto mouse = sf::Mouse::getPosition(window);
@@ -68,6 +75,10 @@ void application::execute() {
             case sf::Keyboard::R:
               photons::generate_random(sys, rng);
               break;
+
+            case sf::Keyboard::D:
+              draw = !draw;
+              break;
           }
           break;
       }
@@ -85,13 +96,27 @@ void application::execute() {
       update = false;
     }
 
-    if (!pause) photons::optics::advance(sys, rng);
+    if (!pause) {
+      photons::phase_function::advance(sys, rng);
+      // photons::phase_function_avx_prng::advance(sys, vrng);
+    }
 
     window.clear();
-    render();
+    if (draw) render();
     window.display();
 
     old_mouse = mouse;
+
+    ++frames;
+    const auto current_time = std::chrono::high_resolution_clock::now();
+    const auto time =
+        std::chrono::duration<float>(current_time - old_time).count();
+    if (time > fps_bound) {
+      std::cout << frames / time << " FPS\t\tframe time = " << time / frames
+                << " s\n";
+      frames = 0;
+      old_time = current_time;
+    }
   }
 }
 

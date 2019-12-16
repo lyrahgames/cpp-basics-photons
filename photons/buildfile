@@ -4,3 +4,4 @@ import libs += sfml-graphics%lib{sfml-graphics}
 exe{photons}: {hxx cxx}{**} $libs
 
 cxx.poptions =+ "-I$out_root" "-I$src_root"
+cxx.loptions += -lpthread
