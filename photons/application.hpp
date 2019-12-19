@@ -26,8 +26,8 @@ class application {
   system tmp_sys;
   // std::mt19937 rng{std::random_device{}()};
   pxart::mt19937 rng{std::random_device{}};
-  // pxart::simd256::mt19937 vrng{std::random_device{}};
-  pxart::simd256::xrsr128p vrng{std::random_device{}};
+  pxart::simd256::mt19937 vrng{std::random_device{}};
+  // pxart::simd256::xrsr128p vrng{std::random_device{}};
 };
 
 }  // namespace photons

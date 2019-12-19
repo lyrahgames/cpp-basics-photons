@@ -156,8 +156,8 @@ inline void advance(system& sys, RNG& rng) noexcept {
   constexpr auto square = [](auto x) { return x * x; };
   std::uniform_real_distribution<system::real_type> dist{0, 1};
 
-  const float absorption = 0.1;
-  const auto time = 1e-1f;
+  const float absorption = 1.0;
+  const auto time = 1e-3f;
   const float g = 0.8f;
 
   for (int i = 0; i < sys.size(); ++i) {
@@ -192,9 +192,9 @@ inline void advance(system& sys, RNG& rng) noexcept {
   constexpr auto square = [](auto x) { return x * x; };
   std::uniform_real_distribution<system::real_type> dist{0, 1};
 
-  const auto time = 1e-1f;
-  const float g = -0.8f;
-  const float absorption = 0.1;
+  const auto time = 1e-3f;
+  const float g = 0.8f;
+  const float absorption = 1.0;
   const auto free_time = std::exp(-absorption * time);
 
   const auto v_time = _mm256_set1_ps(time);
@@ -210,8 +210,11 @@ inline void advance(system& sys, RNG& rng) noexcept {
     _mm256_storeu_ps(&sys.pos_x[i], new_pos_x);
     _mm256_storeu_ps(&sys.pos_y[i], new_pos_y);
 
-    const auto rnd = _mm256_set_ps(dist(rng), dist(rng), dist(rng), dist(rng),
-                                   dist(rng), dist(rng), dist(rng), dist(rng));
+    const auto rnd =
+        _mm256_set_ps(pxart::uniform<float>(rng), pxart::uniform<float>(rng),
+                      pxart::uniform<float>(rng), pxart::uniform<float>(rng),
+                      pxart::uniform<float>(rng), pxart::uniform<float>(rng),
+                      pxart::uniform<float>(rng), pxart::uniform<float>(rng));
     const auto mask = _mm256_cmp_ps(rnd, v_free_time, _CMP_LT_OQ);
 
     const auto v_g = _mm256_set1_ps(g);
@@ -228,8 +231,11 @@ inline void advance(system& sys, RNG& rng) noexcept {
     brackets = _mm256_sub_ps(brackets, _mm256_mul_ps(frac, frac));
     const auto cos_angle = _mm256_div_ps(brackets, v_2g);
 
-    const auto rnd2 = _mm256_set_ps(dist(rng), dist(rng), dist(rng), dist(rng),
-                                    dist(rng), dist(rng), dist(rng), dist(rng));
+    const auto rnd2 =
+        _mm256_set_ps(pxart::uniform<float>(rng), pxart::uniform<float>(rng),
+                      pxart::uniform<float>(rng), pxart::uniform<float>(rng),
+                      pxart::uniform<float>(rng), pxart::uniform<float>(rng),
+                      pxart::uniform<float>(rng), pxart::uniform<float>(rng));
 
     const auto abs_sin_angle =
         _mm256_sqrt_ps(_mm256_sub_ps(one, _mm256_mul_ps(cos_angle, cos_angle)));
@@ -250,9 +256,9 @@ inline void advance(system& sys, RNG& rng) noexcept {
 namespace phase_function_avx_prng {
 template <typename RNG>
 inline void advance(system& sys, RNG& rng) noexcept {
-  const auto time = 1e-1f;
-  const float g = -0.8f;
-  const float absorption = 0.1;
+  const auto time = 1e-3f;
+  const float g = 0.8f;
+  const float absorption = 1.0;
   const auto free_time = std::exp(-absorption * time);
 
   const auto v_time = _mm256_set1_ps(time);
@@ -393,5 +399,103 @@ inline void advance(system& sys, RNG& rng) noexcept {
 }
 
 }  // namespace optics
+
+namespace optics_cache {
+
+template <typename RNG>
+inline void advance(system& sys, RNG& rng) noexcept {
+  constexpr auto time = 0.5e-1f;
+  std::uniform_real_distribution<system::real_type> dist{0, 1};
+  constexpr auto square = [](auto x) { return x * x; };
+
+  const float plane_n_x = 0;
+  const float plane_n_y = -1;
+  const float plane_d = 0;
+  const float plane_t = 1.5;
+  const float plane_t2 = plane_t * plane_t;
+
+  for (int it = 0; it < sys.size(); it += 8) {
+    const auto rnd1 = pxart::simd256::uniform<float>(rng);
+    const auto rnd2 = pxart::simd256::uniform<float>(rng);
+    const auto rnd3 = pxart::simd256::uniform<float>(rng);
+    for (int j = 0; j < 8; ++j) {
+      const int i = it + j;
+      // t for plane
+      const float dot_n_p = plane_n_x * sys.pos_x[i] + plane_n_y * sys.pos_y[i];
+      float dot_n_v = plane_n_x * sys.v_x[i] + plane_n_y * sys.v_y[i];
+      const float t = (-plane_d - dot_n_p) / dot_n_v;
+      if ((0 <= t) && (t <= time)) {
+        const float reflexion = 0.5;
+        if (reinterpret_cast<const float*>(&rnd1)[j] < reflexion) {
+          // reflexion
+          float new_v_x = sys.v_x[i] - 2 * dot_n_v * plane_n_x;
+          float new_v_y = sys.v_y[i] - 2 * dot_n_v * plane_n_y;
+          sys.pos_x[i] += t * sys.v_x[i];
+          sys.pos_y[i] += t * sys.v_y[i];
+          sys.v_x[i] = new_v_x;
+          sys.v_y[i] = new_v_y;
+          sys.pos_x[i] += (time - t) * sys.v_x[i];
+          sys.pos_y[i] += (time - t) * sys.v_y[i];
+        } else {
+          // refraction
+          float eta = plane_t;
+          if (dot_n_v > 0) {
+            eta = -1 / eta;
+            // dot_n_v = -dot_n_v;
+          }
+          const float eta2 = eta * eta;
+          const float sqnorm_v =
+              sys.v_x[i] * sys.v_x[i] + sys.v_y[i] * sys.v_y[i];
+          const float control =
+              sqnorm_v - eta2 * (sqnorm_v - dot_n_v * dot_n_v);
+          if (control <= 0) {
+            float new_v_x = sys.v_x[i] - 2 * dot_n_v * plane_n_x;
+            float new_v_y = sys.v_y[i] - 2 * dot_n_v * plane_n_y;
+            sys.v_x[i] = new_v_x;
+            sys.v_y[i] = new_v_y;
+          } else {
+            const float tmp = eta * std::sqrt(control);
+            const float new_v_x =
+                eta2 * (sys.v_x[i] - dot_n_v * plane_n_x) - tmp * plane_n_x;
+            const float new_v_y =
+                eta2 * (sys.v_y[i] - dot_n_v * plane_n_y) - tmp * plane_n_y;
+            sys.pos_x[i] += t * sys.v_x[i];
+            sys.pos_y[i] += t * sys.v_y[i];
+            sys.v_x[i] = new_v_x;
+            sys.v_y[i] = new_v_y;
+            sys.pos_x[i] += (time - t) * sys.v_x[i];
+            sys.pos_y[i] += (time - t) * sys.v_y[i];
+          }
+        }
+      } else {
+        sys.pos_x[i] += time * sys.v_x[i];
+        sys.pos_y[i] += time * sys.v_y[i];
+
+        bool inside = plane_d + dot_n_p > 0;
+        const float g = (inside) ? (-0.1) : (0.999);
+        const float absorption = (inside) ? (0.01) : (0);
+        const float scattering = (inside) ? (1) : (1);
+        if (reinterpret_cast<const float*>(&rnd1)[j] <
+            std::exp(-absorption * time))
+          continue;
+        const auto cos_angle =
+            (1 + square(g) -
+             square(
+                 (1 - g * g) /
+                 (1 - g + 2 * g * reinterpret_cast<const float*>(&rnd2)[j]))) /
+            (2 * g);
+        const auto sin_angle =
+            ((reinterpret_cast<const float*>(&rnd3)[j] > 0.5) ? 1 : -1) *
+            std::sqrt(1 - square(cos_angle));
+        const auto new_x = cos_angle * sys.v_x[i] - sin_angle * sys.v_y[i];
+        const auto new_y = sin_angle * sys.v_x[i] + cos_angle * sys.v_y[i];
+        sys.v_x[i] = new_x;
+        sys.v_y[i] = new_y;
+      }
+    }
+  }
+}
+
+}  // namespace optics_cache
 
 }  // namespace photons

@@ -7,7 +7,7 @@ using namespace std;
 
 namespace photons {
 
-application::application() : window{{500, 500}, "Photons"}, sys{10000} {
+application::application() : window{{500, 500}, "Photons"}, sys{100000} {
   view.setCenter(0, 0);
 
   photons::generate_random(sys, rng);
@@ -26,8 +26,8 @@ void application::render() {
 
   for (int i = 0; i < sys.size(); ++i) {
     circle.setPosition(sys.pos_x[i], sys.pos_y[i]);
-    circle.setFillColor(sf::Color{255 * sys.weights[i], 255 * sys.weights[i],
-                                  255 * sys.weights[i], 128});
+    // circle.setFillColor(sf::Color{255 * sys.weights[i], 255 * sys.weights[i],
+    //                               255 * sys.weights[i], 128});
     window.draw(circle);
   }
 }
@@ -97,8 +97,17 @@ void application::execute() {
     }
 
     if (!pause) {
-      photons::phase_function::advance(sys, rng);
-      // photons::phase_function_avx_prng::advance(sys, vrng);
+      // photons::optics::advance(sys, rng);
+      // photons::optics_cache::advance(sys, vrng);
+      const auto start = std::chrono::high_resolution_clock::now();
+      for (int i = 0; i < 1000; ++i) {
+        // photons::phase_function::advance(sys, rng);
+        // photons::phase_function_avx::advance(sys, rng);
+        photons::phase_function_avx_prng::advance(sys, vrng);
+      }
+      const auto end = std::chrono::high_resolution_clock::now();
+      const auto time = std::chrono::duration<float>(end - start).count();
+      std::cout << time << "\n";
     }
 
     window.clear();
@@ -111,12 +120,12 @@ void application::execute() {
     const auto current_time = std::chrono::high_resolution_clock::now();
     const auto time =
         std::chrono::duration<float>(current_time - old_time).count();
-    if (time > fps_bound) {
-      std::cout << frames / time << " FPS\t\tframe time = " << time / frames
-                << " s\n";
-      frames = 0;
-      old_time = current_time;
-    }
+    // if (time > fps_bound) {
+    //   std::cout << frames / time << " FPS\t\tframe time = " << time / frames
+    //             << " s\n";
+    //   frames = 0;
+    //   old_time = current_time;
+    // }
   }
 }
 
