@@ -8,4 +8,5 @@ url: https://example.org/photons
 email: markuspawellek@gmail.com
 depends: * build2 >= 0.10.0
 depends: * bpkg >= 0.10.0
+depends: pxart
 requires: sfml-graphics

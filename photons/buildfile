@@ -1,5 +1,6 @@
 libs =
 import libs += sfml-graphics%lib{sfml-graphics}
+import libs += pxart%lib{pxart}
 
 exe{photons}: {hxx cxx}{**} $libs
 

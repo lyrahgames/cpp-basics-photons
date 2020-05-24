@@ -20,14 +20,17 @@ class application {
   sf::RenderWindow window;
   sf::View view;
 
-  float fov = 100;
+  float fov = 50;
 
   system sys;
   system tmp_sys;
   // std::mt19937 rng{std::random_device{}()};
-  pxart::mt19937 rng{std::random_device{}};
-  pxart::simd256::mt19937 vrng{std::random_device{}};
+  // pxart::mt19937 rng{std::random_device{}};
+  // pxart::xrsr128p rng{std::random_device{}};
+  pxart::msws rng{std::random_device{}};
+  // pxart::simd256::mt19937 vrng{std::random_device{}};
   // pxart::simd256::xrsr128p vrng{std::random_device{}};
+  pxart::simd256::msws vrng{std::random_device{}};
 };
 
 }  // namespace photons

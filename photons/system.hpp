@@ -30,8 +30,8 @@ inline void generate_random(system& sys, RNG& rng) noexcept {
   for (int i = 0; i < sys.size(); ++i) {
     const auto radius = 0.2 * std::sqrt(dist(rng));
     const auto angle = two_pi * dist(rng);
-    sys.pos_x[i] = 10 * radius * std::cos(angle);
-    sys.pos_y[i] = 0.5 * radius * std::sin(angle);
+    sys.pos_x[i] = 5 * radius * std::cos(angle);
+    sys.pos_y[i] = 5 * radius * std::sin(angle);
     float cos_angle = cos(-two_pi / 8);
     float sin_angle = sin(-two_pi / 8);
     const auto new_x = cos_angle * sys.pos_x[i] - sin_angle * sys.pos_y[i];
@@ -156,9 +156,9 @@ inline void advance(system& sys, RNG& rng) noexcept {
   constexpr auto square = [](auto x) { return x * x; };
   std::uniform_real_distribution<system::real_type> dist{0, 1};
 
-  const float absorption = 1.0;
+  const float absorption = 0.1;
   const auto time = 1e-3f;
-  const float g = 0.8f;
+  const float g = 0.5f;
 
   for (int i = 0; i < sys.size(); ++i) {
     sys.pos_x[i] += time * sys.v_x[i];
